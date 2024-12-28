@@ -20,6 +20,12 @@ public class PythonInterpreter {
             if (line.contains("=")) {
                 handleAssignment(line);
             }
+
+            // Handle for loop
+            else if (line.startsWith("for")) {
+                index = handleForLoop(lines, index);
+            }
+
             // Handle print statements
             else if (line.startsWith("print")) {
                 handlePrint(line);
@@ -40,19 +46,67 @@ public class PythonInterpreter {
 
     private void handlePrint(String line) {
         String varName = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
-        // If there is some String message
-        if (varName.charAt(0) == '"' && varName.charAt(varName.length() - 1) == '"') {
-            varName = varName.substring(1, varName.length() - 1);
-            System.out.println(varName);
-        }
 
         if (varName.contains("+") || varName.contains("-") ||
                 varName.contains("*") || varName.contains("/") || varName.contains("%")) {
             System.out.println(evaluateExpression(varName));
         } else {
-            System.out.println(variables.getOrDefault(varName, 0));
+            // If there is some String message
+            if (varName.charAt(0) == '"' && varName.charAt(varName.length() - 1) == '"') {
+                varName = varName.substring(1, varName.length() - 1);
+                System.out.println(varName);
+
+            } else {
+                System.out.println(variables.getOrDefault(varName, 0));
+            }
+
+
         }
     }
+
+    private int handleForLoop(String[] lines, int index) {
+        String line = lines[index];
+        // Parse for loop syntax: for i in range(start, end)
+        String loopHeader = line.substring(line.indexOf("for") + 3, line.indexOf(":")).trim();
+        String[] loopParts = loopHeader.split("in");
+        String loopVar = loopParts[0].trim();
+        String rangeExpression = loopParts[1].trim().replace("range(", "").replace(")", "");
+        String[] rangeBounds = rangeExpression.split(",");
+
+        // Evaluate range bounds
+        int start = evaluateExpression(rangeBounds[0].trim());
+        int end = evaluateExpression(rangeBounds[1].trim());
+
+        // Collect loop body
+        int loopStart = index + 1;
+        StringBuilder loopBody = new StringBuilder();
+        // Loop body is written after one tab
+        while (++index < lines.length && lines[index].startsWith("    ")) {
+            loopBody.append(lines[index].trim()).append("\n");
+        }
+        index--; // Step back since we overshot the loop body
+
+        // Execute the loop
+        for (int i = start; i < end; i++) {
+            variables.put(loopVar, i);
+            executeLoopBody(loopBody.toString());
+        }
+        return index;
+    }
+
+    private void executeLoopBody(String loopBody) {
+        String[] statements = loopBody.split("\n");
+        for (String statement : statements) {
+            if (statement.contains("=")) {
+                handleAssignment(statement);
+            } else if (statement.startsWith("print")) {
+                handlePrint(statement);
+            } else {
+                throw new IllegalArgumentException("Unrecognized statement in loop body: " + statement);
+            }
+        }
+    }
+
 
     private int evaluateExpression(String expression) {
         // Handle addition, subtraction, multiplication, division, and modulus
@@ -91,15 +145,21 @@ public class PythonInterpreter {
     public static void main(String[] args) {
         PythonInterpreter interpreter = new PythonInterpreter();
 
-
         String program = """
-                n = 5
-                m = 1
-                a = n * m
-                b = n / m
+                n = 10
+                sum = 0
+                a = 17%5
+                sum1 = 0
                 
-                print(a+b)
-                print("hello")
+                for i in range(1, n + 1):
+                    sum1 = sum1 + a * i
+                    sum = sum + i
+                    sum = sum + sum1
+                    print(sum)
+                
+                print("Total sum")
+                print(sum)
+                print(sum1)
                 
                 """;
 
