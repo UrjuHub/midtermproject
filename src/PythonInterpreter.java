@@ -1,14 +1,16 @@
-import java.util.HashMap;
 import java.util.Map;
-
+import java.util.HashMap;
 
 public class PythonInterpreter {
-    public final Map<String, Integer> variables = new HashMap<>(); // Variable storage
-
+    public final Map<String, Integer> variables = new HashMap<>();
 
     public void eval(String code) {
-        String[] lines = code.split("\\r?\\n");  // Split by line breaks
-        int index = 0;
+        String[] lines = code.split("\\r?\\n");
+        executeStatements(lines, 0, 0);
+    }
+
+    private int executeStatements(String[] lines, int startIndex, int indentLevel) {
+        int index = startIndex;
         while (index < lines.length) {
             String line = lines[index].trim();
             if (line.isEmpty()) {
@@ -16,100 +18,161 @@ public class PythonInterpreter {
                 continue;
             }
 
-            // Handle variable assignment
-            if (line.contains("=")) {
+            int currentIndent = getIndentLevel(lines[index]);
+            if (currentIndent < indentLevel) {
+                return index - 1;
+            }
+
+            if (line.contains("=") && !isComparisonOperator(line)) {
                 handleAssignment(line);
-            }
-
-            // Handle for loop
-            else if (line.startsWith("for")) {
+            } else if (line.startsWith("for")) {
                 index = handleForLoop(lines, index);
-            }
-
-            // Handle print statements
-            else if (line.startsWith("print")) {
+            } else if (line.startsWith("while")) {
+                index = handleWhileLoop(lines, index);
+            } else if (line.startsWith("if")) {
+                index = handleIfStatement(lines, index);
+            } else if (line.startsWith("print")) {
                 handlePrint(line);
-            } else {
-                System.out.println("Unknown line: " + line);
             }
             index++;
         }
+        return index;
     }
 
-    private void handleAssignment(String line) {
-        String[] parts = line.split("=");
-        String varName = parts[0].trim();
-        String expression = parts[1].trim();
-        int value = evaluateExpression(expression);
-        variables.put(varName, value);
+    private boolean isComparisonOperator(String line) {
+        return line.contains("==") || line.contains("!=") ||
+                line.contains(">=") || line.contains("<=") ||
+                line.matches(".*[<>].*");
     }
 
-    private void handlePrint(String line) {
-        String varName = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
-
-        if (varName.contains("+") || varName.contains("-") ||
-                varName.contains("*") || varName.contains("/") || varName.contains("%")) {
-            System.out.println(evaluateExpression(varName));
-        } else {
-            // If there is some String message
-            if (varName.charAt(0) == '"' && varName.charAt(varName.length() - 1) == '"') {
-                varName = varName.substring(1, varName.length() - 1);
-                System.out.println(varName);
-
-            } else {
-                System.out.println(variables.getOrDefault(varName, 0));
-            }
-
-
+    private int getIndentLevel(String line) {
+        int spaces = 0;
+        while (spaces < line.length() && line.charAt(spaces) == ' ') {
+            spaces++;
         }
+        return spaces / 4;
     }
 
     private int handleForLoop(String[] lines, int index) {
         String line = lines[index];
-        // Parse for loop syntax: for i in range(start, end)
         String loopHeader = line.substring(line.indexOf("for") + 3, line.indexOf(":")).trim();
         String[] loopParts = loopHeader.split("in");
         String loopVar = loopParts[0].trim();
         String rangeExpression = loopParts[1].trim().replace("range(", "").replace(")", "");
         String[] rangeBounds = rangeExpression.split(",");
 
-        // Evaluate range bounds
         int start = evaluateExpression(rangeBounds[0].trim());
         int end = evaluateExpression(rangeBounds[1].trim());
 
-        // Collect loop body
-        int loopStart = index + 1;
-        StringBuilder loopBody = new StringBuilder();
-        // Loop body is written after one tab
-        while (++index < lines.length && lines[index].startsWith("    ")) {
-            loopBody.append(lines[index].trim()).append("\n");
-        }
-        index--; // Step back since we overshot the loop body
+        int blockEnd = findBlockEnd(lines, index + 1, getIndentLevel(lines[index + 1]));
 
-        // Execute the loop
         for (int i = start; i < end; i++) {
             variables.put(loopVar, i);
-            executeLoopBody(loopBody.toString());
+            int result = executeStatements(lines, index + 1, getIndentLevel(lines[index + 1]));
+            if (result == -2) break;
         }
-        return index;
+
+        return blockEnd;
     }
 
-    private void executeLoopBody(String loopBody) {
-        String[] statements = loopBody.split("\n");
-        for (String statement : statements) {
-            if (statement.contains("=")) {
-                handleAssignment(statement);
-            } else if (statement.startsWith("print")) {
-                handlePrint(statement);
-            } else {
-                throw new IllegalArgumentException("Unrecognized statement in loop body: " + statement);
+    private int handleWhileLoop(String[] lines, int index) {
+        String line = lines[index];
+        String condition = line.substring(line.indexOf("while") + 5, line.indexOf(":")).trim();
+
+        int blockEnd = findBlockEnd(lines, index + 1, getIndentLevel(lines[index + 1]));
+
+        while (evaluateCondition(condition)) {
+            int result = executeStatements(lines, index + 1, getIndentLevel(lines[index + 1]));
+            if (result == -2) break;
+        }
+
+        return blockEnd;
+    }
+
+    private int handleIfStatement(String[] lines, int index) {
+        String line = lines[index];
+        String condition = line.substring(line.indexOf("if") + 2, line.indexOf(":")).trim();
+        boolean conditionResult = evaluateCondition(condition);
+
+        int currentIndex = index;
+        int currentIndentLevel = getIndentLevel(lines[index + 1]);
+
+        if (conditionResult) {
+            currentIndex = executeStatements(lines, index + 1, currentIndentLevel);
+            currentIndex = skipElseBlock(lines, currentIndex + 1);
+        } else {
+            currentIndex = findBlockEnd(lines, index + 1, currentIndentLevel);
+            if (currentIndex + 1 < lines.length && lines[currentIndex + 1].trim().equals("else:")) {
+                currentIndex = executeStatements(lines, currentIndex + 2, currentIndentLevel);
             }
         }
+
+        return currentIndex;
     }
 
+    private int skipElseBlock(String[] lines, int startIndex) {
+        if (startIndex < lines.length && lines[startIndex].trim().equals("else:")) {
+            return findBlockEnd(lines, startIndex + 1, getIndentLevel(lines[startIndex + 1]));
+        }
+        return startIndex - 1;
+    }
+
+    private int findBlockEnd(String[] lines, int startIndex, int blockIndentLevel) {
+        int i = startIndex;
+        while (i < lines.length) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) {
+                i++;
+                continue;
+            }
+            if (getIndentLevel(lines[i]) < blockIndentLevel) {
+                return i - 1;
+            }
+            i++;
+        }
+        return i - 1;
+    }
+
+    private void handleAssignment(String line) {
+        String[] parts = line.split("=");
+        variables.put(parts[0].trim(), evaluateExpression(parts[1].trim()));
+    }
+
+    private void handlePrint(String line) {
+        String content = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
+        if (content.startsWith("\"") && content.endsWith("\"")) {
+            System.out.println(content.substring(1, content.length() - 1));
+        } else {
+            System.out.println(evaluateExpression(content));
+        }
+    }
+
+    private boolean evaluateCondition(String condition) {
+        condition = condition.trim();
+        if (condition.contains("<=")) {
+            String[] parts = condition.split("<=");
+            return evaluateExpression(parts[0].trim()) <= evaluateExpression(parts[1].trim());
+        } else if (condition.contains(">=")) {
+            String[] parts = condition.split(">=");
+            return evaluateExpression(parts[0].trim()) >= evaluateExpression(parts[1].trim());
+        } else if (condition.contains("==")) {
+            String[] parts = condition.split("==");
+            return evaluateExpression(parts[0].trim()) == evaluateExpression(parts[1].trim());
+        } else if (condition.contains("!=")) {
+            String[] parts = condition.split("!=");
+            return evaluateExpression(parts[0].trim()) != evaluateExpression(parts[1].trim());
+        } else if (condition.contains("<")) {
+            String[] parts = condition.split("<");
+            return evaluateExpression(parts[0].trim()) < evaluateExpression(parts[1].trim());
+        } else if (condition.contains(">")) {
+            String[] parts = condition.split(">");
+            return evaluateExpression(parts[0].trim()) > evaluateExpression(parts[1].trim());
+        }
+        return evaluateExpression(condition) != 0;
+    }
 
     private int evaluateExpression(String expression) {
-        // Handle addition, subtraction, multiplication, division, and modulus
+        expression = expression.trim();
         if (expression.contains("+")) {
             String[] parts = expression.split("\\+");
             int result = 0;
@@ -119,6 +182,9 @@ public class PythonInterpreter {
             return result;
         } else if (expression.contains("-")) {
             String[] parts = expression.split("-");
+            if (parts.length == 1) {
+                return -evaluateExpression(parts[0].trim());
+            }
             return evaluateExpression(parts[0].trim()) - evaluateExpression(parts[1].trim());
         } else if (expression.contains("*")) {
             String[] parts = expression.split("\\*");
@@ -133,36 +199,148 @@ public class PythonInterpreter {
         } else if (expression.contains("%")) {
             String[] parts = expression.split("%");
             return evaluateExpression(parts[0].trim()) % evaluateExpression(parts[1].trim());
-        } else {
-            if (variables.containsKey(expression)) {
-                return variables.get(expression);
-            } else {
-                return Integer.parseInt(expression); // Parse as a number if it's not a variable
-            }
+        }
+
+        try {
+            return Integer.parseInt(expression);
+        } catch (NumberFormatException e) {
+            return variables.getOrDefault(expression, 0);
         }
     }
 
     public static void main(String[] args) {
         PythonInterpreter interpreter = new PythonInterpreter();
 
-        String program = """
-                n = 10
-                sum = 0
-                a = 17%5
-                sum1 = 0
-                
-                for i in range(1, n + 1):
-                    sum1 = sum1 + a * i
-                    sum = sum + i
-                    sum = sum + sum1
-                    print(sum)
-                
-                print("Total sum")
-                print(sum)
-                print(sum1)
-                
-                """;
+        // Test programs
+        String[] programs = new String[]{
+                // Program 1: Sum of numbers
+                """
+            n = 12
+            sum = 0
+            for i in range(1, n + 1):
+                sum = sum + i
+            print(sum)
+            """,
 
-        interpreter.eval(program);
+                // Program 2: Factorial
+                """
+            n = 5
+            factorial = 1
+            for i in range(1, n + 1):
+                factorial = factorial * i
+            print(factorial)
+            """,
+
+                // Program 3: GCD
+                """
+            a = 15
+            b = 18
+            while b != 0:
+                t = b
+                b = a % b
+                a = t
+            print(a)
+            """,
+
+                // Program 4: Reverse number
+                """
+            x = 1234
+            r = 0
+            while x > 0:
+                d = x % 10
+                r = r * 10 + d
+                x = x / 10
+            print(r)
+            """,
+
+                // Program 5: Palindrome check
+                """
+            x = 123321
+            o = x
+            r = 0
+            while x > 0:
+                d = x % 10
+                r = r * 10 + d
+                x = x / 10
+            if o == r:
+                print("palindrome")
+            else:
+                print("not palindrome")
+            """,
+
+                // Program 6: Fibonacci
+                """
+            n = 8
+            a = 0
+            b = 1
+            i = 2
+            while i < n + 1:
+                c = a + b
+                a = b
+                b = c
+                i = i + 1
+            if n == 0:
+                print(0)
+            if n == 1:
+                print(1)    
+            else:
+                print(b)
+            """,
+
+                // Program 7: Sum of digits
+                """
+            x = 2929
+            s = 0
+            while x > 0:
+                d = x % 10
+                s = s + d
+                x = x / 10
+            print(s)
+            """,
+
+                // Program 8: Multiplication table
+                """
+            n = 5
+            i = 1
+            while i < 10:
+                print(n * i)
+                i = i + 1
+            """,
+
+                // Program 9: Prime check
+                """
+            number = 49
+            prime = 1 
+            if number <= 1:
+                prime = 0
+            else:
+                for i in range(2, number):
+                    if number % i == 0:
+                        prime = 0 
+            if prime == 1:
+                print("It's prime")
+            else:
+                print("It's not prime")
+            """,
+                //Program 10: Largest digit
+                """
+            x = 32486
+            m = 0
+                while x > 0:
+                    d = x % 10
+                    if d > m:
+                        m = d
+                    x = x / 10
+                print(m)
+               """
+
+        };
+
+        // Run all test programs
+        for (int i = 0; i < programs.length; i++) {
+            System.out.println("\nRunning Program " + i + ":");
+            interpreter.variables.clear();
+            interpreter.eval(programs[i]);
+        }
     }
 }
