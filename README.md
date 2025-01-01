@@ -12,3 +12,8 @@ program was seeing it as assigment.
 
 On the fourth commit I extend program with some helper methods, so it can handle every required functions test and,
 it fixed problems in third commit. 
+
+In last commit I extend program so it can handle boolean variables and input. I tested this code for many functions 
+and works great.
+
+
