@@ -1,8 +1,11 @@
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Scanner;
 
 public class PythonInterpreter {
     public final Map<String, Integer> variables = new HashMap<>();
+    private final Map<String, Boolean> booleanVariables = new HashMap<>();
+    private final Scanner scanner = new Scanner(System.in);
 
     public void eval(String code) {
         String[] lines = code.split("\\r?\\n");
@@ -13,7 +16,8 @@ public class PythonInterpreter {
         int index = startIndex;
         while (index < lines.length) {
             String line = lines[index].trim();
-            if (line.isEmpty()) {
+
+            if (line.isEmpty() || line.startsWith("#")) {
                 index++;
                 continue;
             }
@@ -24,7 +28,11 @@ public class PythonInterpreter {
             }
 
             if (line.contains("=") && !isComparisonOperator(line)) {
-                handleAssignment(line);
+                if (line.contains("input")) {
+                    handleInput(line);
+                } else {
+                    handleAssignment(line);
+                }
             } else if (line.startsWith("for")) {
                 index = handleForLoop(lines, index);
             } else if (line.startsWith("while")) {
@@ -33,6 +41,8 @@ public class PythonInterpreter {
                 index = handleIfStatement(lines, index);
             } else if (line.startsWith("print")) {
                 handlePrint(line);
+            } else {
+                System.out.println("Unknown statement: " + line);
             }
             index++;
         }
@@ -51,6 +61,43 @@ public class PythonInterpreter {
             spaces++;
         }
         return spaces / 4;
+    }
+
+    private void handleInput(String line) {
+        String varName = line.substring(0, line.indexOf("=")).trim();
+        String inputPart = line.substring(line.indexOf("input")).trim();
+        String prompt = inputPart.substring(inputPart.indexOf("(") + 1, inputPart.indexOf(")")).trim();
+
+        if (!prompt.isEmpty()) {
+            if (prompt.startsWith("\"") && prompt.endsWith("\"")) {
+                System.out.print(prompt.substring(1, prompt.length() - 1) + " ");
+            }
+        }
+
+        try {
+            int value = Integer.parseInt(scanner.nextLine());
+            variables.put(varName, value);
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid input. Please enter a number.");
+            variables.put(varName, 0);
+        }
+    }
+
+    private void handleAssignment(String line) {
+        String[] parts = line.split("=");
+        String varName = parts[0].trim();
+        String value = parts[1].trim().toLowerCase();
+
+        if (value.equals("true")) {
+            booleanVariables.put(varName, true);
+            variables.put(varName, 1);
+        } else if (value.equals("false")) {
+            booleanVariables.put(varName, false);
+            variables.put(varName, 0);
+        } else {
+            variables.put(varName, evaluateExpression(value));
+            booleanVariables.remove(varName);
+        }
     }
 
     private int handleForLoop(String[] lines, int index) {
@@ -121,7 +168,7 @@ public class PythonInterpreter {
         int i = startIndex;
         while (i < lines.length) {
             String line = lines[i].trim();
-            if (line.isEmpty()) {
+            if (line.isEmpty() || line.startsWith("#")) {
                 i++;
                 continue;
             }
@@ -133,15 +180,12 @@ public class PythonInterpreter {
         return i - 1;
     }
 
-    private void handleAssignment(String line) {
-        String[] parts = line.split("=");
-        variables.put(parts[0].trim(), evaluateExpression(parts[1].trim()));
-    }
-
     private void handlePrint(String line) {
         String content = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
         if (content.startsWith("\"") && content.endsWith("\"")) {
             System.out.println(content.substring(1, content.length() - 1));
+        } else if (booleanVariables.containsKey(content)) {
+            System.out.println(booleanVariables.get(content));
         } else {
             System.out.println(evaluateExpression(content));
         }
@@ -149,6 +193,14 @@ public class PythonInterpreter {
 
     private boolean evaluateCondition(String condition) {
         condition = condition.trim();
+
+        if (booleanVariables.containsKey(condition)) {
+            return booleanVariables.get(condition);
+        }
+
+        if (condition.equals("true")) return true;
+        if (condition.equals("false")) return false;
+
         if (condition.contains("<=")) {
             String[] parts = condition.split("<=");
             return evaluateExpression(parts[0].trim()) <= evaluateExpression(parts[1].trim());
@@ -211,11 +263,10 @@ public class PythonInterpreter {
     public static void main(String[] args) {
         PythonInterpreter interpreter = new PythonInterpreter();
 
-        // Test programs
         String[] programs = new String[]{
                 // Program 1: Sum of numbers
                 """
-            n = 12
+            n = input("Enter number")
             sum = 0
             for i in range(1, n + 1):
                 sum = sum + i
@@ -244,7 +295,7 @@ public class PythonInterpreter {
 
                 // Program 4: Reverse number
                 """
-            x = 1234
+            x = 123456789
             r = 0
             while x > 0:
                 d = x % 10
@@ -309,37 +360,39 @@ public class PythonInterpreter {
 
                 // Program 9: Prime check
                 """
-            number = 49
-            prime = 1 
+            number = input("Enter number")
+            prime = true 
             if number <= 1:
-                prime = 0
+                prime = true
             else:
                 for i in range(2, number):
                     if number % i == 0:
-                        prime = 0 
-            if prime == 1:
+                        prime = false 
+            if prime:
                 print("It's prime")
             else:
                 print("It's not prime")
             """,
-                //Program 10: Largest digit
+
+                // Program 10: Largest digit
                 """
-            x = 32486
+            x = input("Enter number");
             m = 0
-                while x > 0:
-                    d = x % 10
-                    if d > m:
-                        m = d
-                    x = x / 10
-                print(m)
-               """
+            while x > 0:
+                d = x % 10
+                if d > m:
+                    m = d
+                x = x / 10
+            print(m)
+            """
 
         };
 
         // Run all test programs
         for (int i = 0; i < programs.length; i++) {
-            System.out.println("\nRunning Program " + i + ":");
+            System.out.println("\nRunning Program " + (i + 1) + ":");
             interpreter.variables.clear();
+            interpreter.booleanVariables.clear();
             interpreter.eval(programs[i]);
         }
     }
